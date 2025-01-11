@@ -39,7 +39,7 @@ def gameList(directory):
             excluded_tag = " (Excluded)" if shortcut in excludedGames else ""
             print(f"{idx}. {shortcut}{excluded_tag}")
 
-        user_input = input("\nEnter the number to exclude/include a game, '808' to return to menu or '0' to CMAG: ")
+        user_input = input("\nEnter the number or name of the game to exclude/include a game, '808' to return to menu or '0' to CMAG: ")
 
         if user_input == '0':
             for idx, shortcut in enumerate(games, 1):
@@ -67,8 +67,26 @@ def gameList(directory):
                 saveExcluded(list(excludedGames))
             else:
                 print("Invalid number, please try again.")
+        elif isinstance(user_input,str):
+            slnk = f"{user_input}.lnk"
+            surl = f"{user_input}.url"
+            if slnk in excludedGames:
+                excludedGames.remove(slnk)
+                print(f"Game '{user_input}' has been re-included.")
+            elif surl in excludedGames:
+                excludedGames.remove(surl)
+                print(f"Game '{user_input}' has been re-included.")
+            else:
+                if slnk in games:
+                    excludedGames.add(slnk)
+                    print(f"Game '{user_input}' has been excluded.")
+                elif surl in games:
+                    excludedGames.add(surl)
+                    print(f"Game '{user_input}' has been excluded.")
+            saveExcluded(list(excludedGames))   
+
         else:
-            print("Invalid input, please enter a valid number.")
+            print("Invalid choice")     
 
     return [s for s in games if s not in excludedGames]
 
