@@ -2,6 +2,8 @@ import os
 import json
 import random
 import subprocess
+import customtkinter as ctk
+from tkinter import messagebox, filedialog
 
 CONFIG = "config.json"
 
@@ -29,118 +31,169 @@ def loadExcluded():
             return set(data.get("excluded", []))
     return set()
 
-def gameList(directory):
-    games = [f for f in os.listdir(directory) if f.endswith(('.lnk', '.url'))]
-    excludedGames = loadExcluded()
 
-    while True:
-        print("\nCurrent list of games:")
-        for idx, shortcut in enumerate(games, 1):
-            excluded_tag = " (Excluded)" if shortcut in excludedGames else ""
-            print(f"{idx}. {shortcut}{excluded_tag}")
+class ScrollableGameFrame(ctk.CTkScrollableFrame):
+    def __init__(self, master, command=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.grid_columnconfigure(0, weight=1)
+        self.command = command
+        self.buttons = []
 
-        user_input = input("\nEnter the number or name of the game to exclude/include a game, '808' to return to menu or '0' to CMAG: ")
+    def add_game_button(self, game_name):
+        button = ctk.CTkButton(
+            self,
+            text=game_name,
+            fg_color="gray25",
+            hover_color="gray35"
+        )
+        button.grid(row=len(self.buttons), column=0, padx=5, pady=2, sticky="ew")
+        button.bind('<Double-Button-1>', lambda e: self.command(game_name))
+        self.buttons.append(button)
 
-        if user_input == '0':
-            for idx, shortcut in enumerate(games, 1):
-                excluded_tag = " (Excluded)" if shortcut in excludedGames else ""
-                if excluded_tag == "":
-                    print(f"{idx}. {shortcut}{excluded_tag}")
-            userApprove = input("\nThese are the current games you've selected. Enter '1' to keep choosing or '0' again to confirm: ")
-            if userApprove == '0':
-                break
-            elif userApprove == '1':
-                continue
+    def clear_buttons(self):
+        for button in self.buttons:
+            button.destroy()
+        self.buttons.clear()
 
-        if user_input.isdigit():
-            index = int(user_input) - 1
-            if int(user_input) == 808:
-                return 808
-            elif 0 <= index < len(games):
-                shortcut = games[index]
-                if shortcut in excludedGames:
-                    excludedGames.remove(shortcut)
-                    print(f"Game '{shortcut}' has been re-included.")
-                else:
-                    excludedGames.add(shortcut)
-                    print(f"Game '{shortcut}' has been excluded.")
-                saveExcluded(list(excludedGames))
-            else:
-                print("Invalid number, please try again.")
-        elif isinstance(user_input,str):
-            slnk = f"{user_input}.lnk"
-            surl = f"{user_input}.url"
-            if slnk in excludedGames:
-                excludedGames.remove(slnk)
-                print(f"Game '{user_input}' has been re-included.")
-            elif surl in excludedGames:
-                excludedGames.remove(surl)
-                print(f"Game '{user_input}' has been re-included.")
-            else:
-                if slnk in games:
-                    excludedGames.add(slnk)
-                    print(f"Game '{user_input}' has been excluded.")
-                elif surl in games:
-                    excludedGames.add(surl)
-                    print(f"Game '{user_input}' has been excluded.")
-            saveExcluded(list(excludedGames))   
+class GameLauncherApp:
+    def __init__(self):
+        self.window = ctk.CTk()
+        self.window.title("CMAG - Choose Me A Game")
+        self.window.geometry("1000x600")
+        self.window.minsize(800, 400)
+        
+        self.window.grid_columnconfigure(0, weight=3)
+        self.window.grid_columnconfigure(1, weight=1)
+        self.window.grid_rowconfigure(2, weight=1)
+        
+        self._create_directory_frame()
+        self._create_title_labels()
+        self._create_game_frames()
+        self._create_control_frame()
+        
+        self.directory = loadDir()
+        self.excluded_games = loadExcluded()
+        self.games = []
+        
+        if self.directory:
+            self.dir_entry.insert(0, self.directory)
+            self.refresh_games_list()
 
-        else:
-            print("Invalid choice")     
+    def _create_directory_frame(self):
+        self.dir_frame = ctk.CTkFrame(self.window)
+        self.dir_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        self.dir_frame.grid_columnconfigure(1, weight=1)
+        
+        self.dir_label = ctk.CTkLabel(self.dir_frame, text="Game Directory:")
+        self.dir_label.grid(row=0, column=0, padx=5, pady=5)
+        
+        self.dir_entry = ctk.CTkEntry(self.dir_frame, width=400)
+        self.dir_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        
+        self.dir_button = ctk.CTkButton(self.dir_frame, text="Browse Directory", command=self.browse_directory)
+        self.dir_button.grid(row=0, column=2, padx=5, pady=5)
 
-    return [s for s in games if s not in excludedGames]
+    def _create_title_labels(self):
+        title_style = {
+            "font": ctk.CTkFont(size=16, weight="bold"),
+            "fg_color": "gray25",
+            "corner_radius": 6,
+            "padx": 10,
+            "pady": 5
+        }
+        
+        self.available_title = ctk.CTkLabel(self.window, text="Chosen Games", **title_style)
+        self.available_title.grid(row=1, column=0, padx=10, pady=(5,0), sticky="ew")
+        
+        self.excluded_title = ctk.CTkLabel(self.window, text="Excluded Games", **title_style)
+        self.excluded_title.grid(row=1, column=1, padx=10, pady=(5,0), sticky="ew")
 
-def cmag(directory, games):
-    if games:
-        selected_shortcut = random.choice(games)
-        shortcut_path = os.path.join(directory, selected_shortcut)
-        print(f"Executing: {selected_shortcut}")
-        subprocess.run(['cmd', '/c', shortcut_path], shell=True)
-        exit()
-    else:
-        print("No games available to execute.")
+    def _create_game_frames(self):
+        frame_style = {
+            "command": self.toggle_game,
+            "width": 200,
+            "height": 400
+        }
+        
+        self.games_frame = ScrollableGameFrame(self.window, **frame_style)
+        self.games_frame.grid(row=2, column=0, padx=10, pady=5, sticky="nsew")
+        
+        self.excluded_frame = ScrollableGameFrame(self.window, **frame_style)
+        self.excluded_frame.grid(row=2, column=1, padx=10, pady=5, sticky="nsew")
 
-def menu():
-    while True:
-        print("\nMenu:")
-        print("1. CMAG")
-        print("2. Edit Directory")
-        print("0. Exit")
-        choice = input("Enter your choice: ")
+    def _create_control_frame(self):
+        self.control_frame = ctk.CTkFrame(self.window)
+        self.control_frame.grid(row=3, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        self.control_frame.grid_columnconfigure(0, weight=1)
+        
+        self.cmag_button = ctk.CTkButton(
+            self.control_frame,
+            text="CMAG!",
+            command=self.run_cmag,
+            width=200,
+            height=40
+        )
+        self.cmag_button.grid(row=0, column=0, padx=5, pady=5)
 
-        if choice == '1':
-            directory = loadDir()
-            if directory and os.path.isdir(directory):
-                filtered_games = gameList(directory)
-                if filtered_games == 808:
-                    continue
-                else:
-                    cmag(directory, filtered_games)
-            else:
-                print("No valid directory found. Please set a directory first.")
-        elif choice == '2':
-            directory = input("Enter the new folder directory: ")
-            if os.path.isdir(directory):
-                saveDir(directory)
-                print(f"Directory '{directory}' has been updated.")
-            else:
-                print(f"The directory '{directory}' does not exist. Please try again.")
-        elif choice == '0':
-            print("Exiting...")
-            break
-        else:
-            print("Invalid choice, please try again.")
+    def browse_directory(self):
+        directory = filedialog.askdirectory(
+            title="Select Games Directory",
+            initialdir=self.directory if self.directory else os.path.expanduser("~")
+        )
+        if directory:
+            self.dir_entry.delete(0, 'end')
+            self.dir_entry.insert(0, directory)
+            self.update_directory()
 
-def main():
-    saved_directory = loadDir()
-    if not saved_directory:
-        directory = input("Enter the folder directory: ")
+    def update_directory(self):
+        directory = self.dir_entry.get()
         if os.path.isdir(directory):
             saveDir(directory)
-            print(f"Directory '{directory}' has been saved.")
+            self.directory = directory
+            self.refresh_games_list()
+            messagebox.showinfo("Success", f"Directory updated to: {directory}")
         else:
-            print(f"The directory '{directory}' does not exist. Please try again.")
-    menu()
+            messagebox.showerror("Error", "Invalid directory path")
+
+    def refresh_games_list(self):
+        self.games = [f for f in os.listdir(self.directory) if f.endswith(('.lnk', '.url'))]
+        self.window.after(10, self._update_game_lists)
+
+    def _update_game_lists(self):
+        self.games_frame.clear_buttons()
+        self.excluded_frame.clear_buttons()
+        
+        for game in self.games:
+            if game in self.excluded_games:
+                self.excluded_frame.add_game_button(game)
+            else:
+                self.games_frame.add_game_button(game)
+
+    def toggle_game(self, game_name):
+        if game_name in self.excluded_games:
+            self.excluded_games.remove(game_name)
+        else:
+            self.excluded_games.add(game_name)
+        
+        saveExcluded(list(self.excluded_games))
+        self.refresh_games_list()
+
+    def run_cmag(self):
+        available_games = [g for g in self.games if g not in self.excluded_games]
+        if available_games:
+            selected_game = random.choice(available_games)
+            shortcut_path = os.path.join(self.directory, selected_game)
+            messagebox.showinfo("CMAG", f"Launching: {selected_game}")
+            subprocess.run(['cmd', '/c', 'start', '', shortcut_path], shell=True)
+        else:
+            messagebox.showwarning("Warning", "No games available to launch")
+
+    def run(self):
+        self.window.mainloop()
+
+def main():
+    app = GameLauncherApp()
+    app.run()
 
 if __name__ == "__main__":
     main()
